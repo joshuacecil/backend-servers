@@ -1,0 +1,253 @@
+const express = require("express");
+const { MongoClient, BSONType } = require("mongodb");
+const cors = require("cors");
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+const user = {
+  $jsonSchema: {
+    bsonType: "object",
+    required: ["name", "email", "password", "country"],
+    properties: {
+      name: {
+        bsontype: String,
+      },
+      email: { bsonType: String },
+      phone: { bsonType: String },
+      password: { bsonType: String },
+      country: { bsonType: String },
+      paymentHistory: { bsonType: Array },
+    },
+  },
+};
+const orphanage = {
+  $jsonSchema: {
+    bsonType: "object",
+    required: [
+      "Homename",
+      "address",
+      "year",
+      "contact",
+      "password",
+      "info",
+      "location",
+    ],
+    properties: {
+      Homename: { bsonType: String },
+      address: { bsonType: String },
+      year: { bsonType: String },
+      contact: {
+        bsonType: "object",
+        required: ["phone", "email"],
+        properties: {
+          phone: { bsonType: String },
+          email: { bsonType: String },
+        },
+      },
+      password: { bsonType: String },
+
+      info: {
+        bsonType: "object",
+        required: ["babies", "children", "physicallyDisabled", "adults"],
+        properties: {
+          babies: { bsonType: Number },
+          children: { bsonType: Number },
+          physicallyDisabled: { bsonType: Number },
+          adults: { bsonType: Number },
+        },
+      },
+      location: {
+        bsonType: "object",
+        required: ["type", "coordinates"],
+        properties: {
+          type: { bsonType: String, enum: ["Point"] },
+          coordinates: { bsonType: Array },
+        },
+      },
+    },
+  },
+};
+
+
+
+app.post("/registeruser", async (req, res) => {
+  const { name, email, phone, password, country, paymentHistory } = req.body;
+  try {
+    const newuser = await userCollection.insertOne({
+      name,
+      email,
+      phone,
+      password,
+      country,
+      paymentHistory,
+    });
+    res.send("User Created");
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+app.post("/searchemail", async (req, res) => {
+  const { email } = req.body;
+  try {
+    const alreadyuser = await userCollection.findOne({
+      email: email,
+    });
+    if (alreadyuser) {
+      res.send("exist");
+    } else {
+      res.send("pass");
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+app.post("/searchephone", async (req, res) => {
+  const { phone } = req.body;
+  try {
+    const alreadyuser = await userCollection.findOne({
+      phone: phone,
+    });
+    if (alreadyuser) {
+      res.send("exist");
+    } else {
+      res.send("pass");
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+app.post("/registerorphange", async (req, res) => {
+  const { Homename, address, year, contact, password, info, location } =
+    req.body;
+  try {
+    const newOrphanage = await orphanageCollection.insertOne({
+      Homename,
+      address,
+      year,
+      contact,
+      password,
+      info,
+      location,
+    });
+    res.send("home added");
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+app.post("/userlogin", async (req, res) => {
+  const { query, password } = req.body;
+  try {
+    const user = await userCollection.findOne({
+      $or: [{ name: query }, { email: query }, { phone: query }],
+    });
+    if (user) {
+      if (user.password == password) {
+        res.json({
+          status: "login",
+          username: user.name,
+          email: user.email,
+          phone: user.phone,
+        });
+      }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+app.post("/homelogin", async (req, res) => {
+  const { query, password } = req.body;
+  try {
+    const orphanage = await orphanageCollection.findOne({
+      $or: [
+        { Homename: query },
+        { "contact.email": query },
+        { "contact.phone": query },
+      ],
+    });
+    if (orphanage) {
+      if (orphanage.password == password) {
+        res.send("home login");
+      }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+app.post("/findhomes", async (req, res) => {
+  const { latitude, longitude } = req.body;
+  try {
+    const homes = await orphanageCollection.find({
+      location: {
+        $nearSphere: {
+          $geometry: {
+            type: "Point",
+            coordinates: [longitude, latitude],
+          },
+          $maxDistance: 1000,
+        },
+      },
+    });
+    res.json(homes);
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+let userCollection, orphanageCollection;
+
+const uri =
+  "mongodb+srv://ceciljr16777:joshuakk777@cluster0.3zob8dl.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const databasename = "Orphanage";
+
+async function mongo2(uri) {
+  try {
+    const accessMongouser = new MongoClient(uri);
+    await accessMongouser.connect();
+    console.log("db connected");
+  } catch (err) {
+    console.log(err);
+  }
+}
+
+async function mongo(uri, databasename) {
+  try {
+    const accessMongouser = new MongoClient(uri);
+    await accessMongouser.connect();
+    console.log("db connected");
+
+    const database = await accessMongouser.db(databasename);
+
+    const use = await database.createCollection("users", {
+      validator: user,
+    });
+    userCollection = use;
+
+    const home = await database.createCollection("orphanage", {
+      validator: orphanage,
+    });
+
+    home.createIndex({ location: "2dsphere" });
+    orphanageCollection = home;
+
+    console.log("collections created");
+  } catch (err) {
+    console.log(err);
+  }
+}
+
+async function Startserver() {
+  try {
+    await mongo(uri, databasename);
+
+    app.listen(5000, () => {});
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+Startserver();
